@@ -11,7 +11,7 @@ import time
 import logging
 from functools import wraps
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, g
+from flask import Flask, render_template, request, jsonify, g, send_from_directory
 from search import search_data
 from video import parse_video_details, get_play_link_by_id, clear_cache, get_cache_stats
 from config import get_config
@@ -146,6 +146,67 @@ def index():
     """主页"""
     return render_template('index.html')
 
+@app.route('/episode-play-url', methods=['POST'])
+@rate_limit(per_minute=30, per_hour=100)
+def get_episode_play_url():
+    """获取单个剧集的播放地址"""
+    try:
+        data = request.get_json()
+        if not data or 'episode_url' not in data:
+            return jsonify({'success': False, 'error': '缺少剧集URL参数'}), 400
+        
+        episode_url = data['episode_url']
+        if not episode_url:
+            return jsonify({'success': False, 'error': '剧集URL不能为空'}), 400
+        
+        logger.info(f"获取剧集播放地址: {episode_url}")
+        
+        # 确保URL是完整的
+        if not episode_url.startswith('http'):
+            episode_url = f"https://djw1.com{episode_url}"
+        
+        # 使用现有的函数获取播放地址
+        from video import get_episode_play_url
+        play_url = get_episode_play_url(episode_url)
+        
+        if play_url:
+            logger.info(f"成功获取剧集播放地址: {play_url}")
+            return jsonify({
+                'success': True,
+                'play_url': play_url
+            })
+        else:
+            logger.warning(f"未找到剧集播放地址: {episode_url}")
+            return jsonify({
+                'success': False,
+                'error': '未找到播放地址'
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"获取剧集播放地址出错: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '服务器内部错误'
+        }), 500
+
+@app.route('/play-fixed')
+def play_fixed():
+    """修复版本的播放页面"""
+    video_id = request.args.get('id')
+    if not video_id:
+        logger.warning("播放页面缺少视频ID参数")
+        return render_template('error.html', message='缺少视频ID参数'), 400
+    
+    # 验证视频ID格式
+    if not validate_video_id(video_id):
+        logger.warning(f"播放页面收到无效的视频ID: {video_id}")
+        return render_template('error.html', message='无效的视频ID格式'), 400
+    
+    logger.info(f"渲染修复版播放页面: {video_id}")
+    return render_template('play_fixed.html')
+
+
+
 @app.route('/search')
 @rate_limit(per_minute=30, per_hour=100)
 @monitor_performance
@@ -226,6 +287,7 @@ def get_video_data(video_id):
         start_time = time.time()
         
         # 解析视频详情
+        logger.info(f"开始解析视频详情，播放链接: {play_link}")
         video_data = parse_video_details(
             play_link, 
             use_async=use_async, 
@@ -244,13 +306,19 @@ def get_video_data(video_id):
                     'parse_time': round(parse_time, 2),
                     'episodes_count': len(video_data.get('episodes', [])),
                     'use_async': use_async,
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now().isoformat(),
+                    'play_link': play_link
                 }
             
             return jsonify(response_data)
         else:
-            logger.warning(f"获取视频数据失败: {video_id}")
-            return jsonify({'error': '视频数据不存在或无法访问'}), 404
+            logger.error(f"获取视频数据失败: {video_id}, 播放链接: {play_link}")
+            logger.error("parse_video_details函数返回了None，可能的原因：")
+            logger.error("1. 网络请求失败")
+            logger.error("2. HTML解析失败")
+            logger.error("3. 目标网站结构变化")
+            logger.error("4. 被目标网站屏蔽")
+            return jsonify({'error': '视频数据不存在或无法访问，请检查视频ID或稍后重试'}), 404
             
     except Exception as e:
         logger.error(f"获取视频数据出错: {e}", exc_info=True)

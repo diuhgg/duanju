@@ -362,15 +362,27 @@ def parse_video_details(video_url, use_async=True, max_episodes=None):
     """解析视频详情，支持异步和延迟加载"""
     max_episodes = max_episodes or config.MAX_EPISODES
     
+    # 优化：减少默认的max_episodes以提高首次加载速度
+    if max_episodes > 20:
+        max_episodes = 10  # 首次只加载10集，提高速度
+    
     headers = {
         'User-Agent': config.USER_AGENT
     }
     
     try:
-        logger.info(f"开始解析视频详情: {video_url}")
-        # 发送HTTP请求
-        response = requests.get(video_url, headers=headers, timeout=config.REQUEST_TIMEOUT)
+        logger.info(f"开始解析视频详情: {video_url}, max_episodes: {max_episodes}")
+        logger.info(f"请求头: {headers}")
+        start_time = time.time()
+        
+        # 优化：使用更短的超时时间
+        logger.info(f"发送HTTP请求到: {video_url}")
+        response = requests.get(video_url, headers=headers, timeout=5)
+        logger.info(f"HTTP响应状态: {response.status_code}")
         response.raise_for_status()
+        
+        parse_time = time.time() - start_time
+        logger.info(f"页面获取耗时: {parse_time:.2f}秒")
         
         # 解析HTML
         soup = BeautifulSoup(response.text, 'html.parser')

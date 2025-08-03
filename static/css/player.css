@@ -387,6 +387,35 @@ body::before {
     font-size: 0.8rem;
 }
 
+/* 播放器加载容器 */
+#player-loading-container {
+    margin: var(--spacing-sm) 0;
+}
+
+#player-loading-container .loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-md);
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    animation: fadeIn 0.3s ease;
+}
+
+#player-loading-container .loading-spinner {
+    width: 30px;
+    height: 30px;
+    margin-bottom: var(--spacing-xs);
+}
+
+#player-loading-container p {
+    font-size: 0.9rem;
+    margin: 0;
+}
+
 /* 加载状态 */
 .loading-episodes {
     display: flex;
@@ -780,26 +809,7 @@ body::before {
     outline-offset: 2px;
 }
 
-/* 加载状态 */
-.loading-state {
-    opacity: 0.7;
-    pointer-events: none;
-}
 
-.loading-state::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 40px;
-    height: 40px;
-    margin: -20px 0 0 -20px;
-    border: 3px solid var(--border-color);
-    border-top: 3px solid var(--primary-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    z-index: 10;
-}
 
 /* 键盘快捷键帮助样式 */
 .help-overlay {

@@ -7,7 +7,9 @@
 let currentVideoData = null;
 let currentEpisodeIndex = 0;
 let isLoading = false;
+let isInitialized = false;
 let retryCount = 0;
+let cachedEpisodes = null; // 缓存播放列表
 const MAX_RETRY_COUNT = 3;
 
 // ==================== 工具函数 ====================
@@ -73,15 +75,33 @@ function showError(message, canRetry = true) {
 /**
  * 显示加载状态
  * @param {string} message - 加载消息
+ * @param {boolean} showInPlayer - 是否显示在播放器上方
  */
-function showLoading(message = '加载中...') {
-    const errorContainer = document.getElementById('error-container');
-    errorContainer.innerHTML = `
+function showLoading(message = '加载中...', showInPlayer = false) {
+    // 防止重复显示加载状态
+    if (isLoading) {
+        return;
+    }
+    
+    const loadingHTML = `
         <div class="loading-state">
             <div class="loading-spinner"></div>
             <p>${message}</p>
         </div>
     `;
+    
+    if (showInPlayer) {
+        // 显示在播放器上方
+        const playerLoadingContainer = document.getElementById('player-loading-container');
+        if (playerLoadingContainer) {
+            playerLoadingContainer.innerHTML = loadingHTML;
+        }
+    } else {
+        // 显示在页面顶部（用于初始加载）
+        const errorContainer = document.getElementById('error-container');
+        errorContainer.innerHTML = loadingHTML;
+    }
+    
     isLoading = true;
 }
 
@@ -90,25 +110,30 @@ function showLoading(message = '加载中...') {
  */
 function hideLoading() {
     const errorContainer = document.getElementById('error-container');
+    const playerLoadingContainer = document.getElementById('player-loading-container');
+    
     errorContainer.innerHTML = '';
+    if (playerLoadingContainer) {
+        playerLoadingContainer.innerHTML = '';
+    }
     isLoading = false;
 }
 
 /**
- * 显示剧集列表加载状态
+ * 显示剧集列表加载状态（已弃用，使用统一的showLoading）
  */
-function showEpisodesLoading() {
-    const episodesList = document.getElementById('episodes-list');
-    const episodeCount = document.getElementById('episode-count');
-    
-    episodesList.innerHTML = `
-        <div class="loading-episodes">
-            <div class="loading-spinner"></div>
-            <p>加载剧集中...</p>
-        </div>
-    `;
-    episodeCount.textContent = '加载中...';
-}
+// function showEpisodesLoading() {
+//     const episodesList = document.getElementById('episodes-list');
+//     const episodeCount = document.getElementById('episode-count');
+//     
+//     episodesList.innerHTML = `
+//         <div class="loading-episodes">
+//             <div class="loading-spinner"></div>
+//             <p>加载剧集中...</p>
+//         </div>
+//     `;
+//     episodeCount.textContent = '加载中...';
+// }
 
 // ==================== 剧集管理 ====================
 
@@ -135,7 +160,6 @@ function renderEpisodesList(episodes) {
             <div class="episode-number">${episode.number}</div>
             <div class="episode-info-text">
                 <div class="episode-title">${episode.title || `第${episode.number}集`}</div>
-                <div class="episode-url">${episode.url ? '有播放链接' : '无播放链接'}</div>
             </div>
         </div>
     `).join('');
@@ -144,58 +168,51 @@ function renderEpisodesList(episodes) {
 }
 
 /**
- * 切换剧集
+ * 切换剧集 - 优化版本（使用缓存）
  * @param {number} index - 剧集索引
  */
 function switchEpisode(index) {
-    if (!currentVideoData || !currentVideoData.episodes || !currentVideoData.episodes[index]) {
+    if (!currentVideoData || !cachedEpisodes || !cachedEpisodes[index]) {
         console.error('剧集数据不存在');
         showError('剧集数据不存在', false);
         return;
     }
-
-    const episode = currentVideoData.episodes[index];
+    
+    const episode = cachedEpisodes[index];
     currentEpisodeIndex = index;
-
+    
     // 更新当前播放信息
     document.getElementById('episode-number').textContent = episode.number;
     document.getElementById('episode-title').textContent = episode.title || `第${episode.number}集`;
-
+    
     // 更新剧集列表中的激活状态
     document.querySelectorAll('.episode-item').forEach((item, i) => {
         item.classList.toggle('active', i === index);
     });
-
-    // 使用剧集的播放地址
+    
+    // 使用缓存的播放地址，不重复请求
     if (episode.play_url) {
         updatePlayer(episode.play_url);
     } else if (episode.url) {
-        // 如果没有直接播放地址，尝试从URL获取
-        showLoading('正在获取播放地址...');
-        const episodeVideoId = extractVideoIdFromUrl(episode.url);
-        if (episodeVideoId) {
-            loadEpisodeVideo(episodeVideoId);
-        } else {
-            hideLoading();
-            console.warn('无法获取剧集播放地址');
-            showError('无法获取剧集播放地址', false);
-        }
+        // 如果没有直接播放地址，尝试动态获取（不显示加载动画）
+        loadEpisodePlayUrl(episode.url, index);
     } else {
-        console.warn('剧集没有播放地址');
+        console.warn('剧集没有播放地址和URL');
         showError('剧集没有播放地址', false);
     }
-
+    
     // 滚动到当前剧集
     const activeItem = document.querySelector('.episode-item.active');
     if (activeItem) {
         activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-
+    
     sendLogToServer('切换剧集', {
         episodeIndex: index,
         episodeNumber: episode.number,
         episodeTitle: episode.title,
-        hasPlayUrl: !!episode.play_url
+        hasPlayUrl: !!episode.play_url,
+        fromCache: true
     });
 }
 
@@ -230,53 +247,71 @@ function updatePlayer(m3u8Url) {
     document.getElementById('video-player').src = iframeSrc;
 }
 
+
+
 /**
- * 初始化播放器
- * @param {object} videoData - 视频数据
+ * 快速初始化播放器 - 优先显示视频
+ * @param {Object} videoData - 视频数据
  */
-function initPlayer(videoData) {
+function initPlayerQuick(videoData) {
     try {
         // 保存视频数据
         currentVideoData = videoData;
-
-        // 检查必要字段
-        if (!videoData.m3u8_url && !videoData.play_url) {
-            throw new Error('非法的视频链接格式');
-        }
-        if (!videoData.video_title) {
-            throw new Error('视频数据中缺少标题字段');
-        }
-
-        // 展示视频信息
-        document.getElementById('video-title').textContent = videoData.video_title;
         
-        // 渲染剧集列表
-        renderEpisodesList(videoData.episodes);
+        // 检查必要字段
+        if (!videoData.m3u8_url && !videoData.play_url && (!videoData.episodes || videoData.episodes.length === 0)) {
+            throw new Error('无法找到播放地址：缺少m3u8_url、play_url和剧集信息');
+        }
+        
+        // 展示视频信息
+        document.getElementById('video-title').textContent = videoData.video_title || '未知视频';
         
         // 如果有剧集信息，显示第一集
         if (videoData.episodes && videoData.episodes.length > 0) {
             const firstEpisode = videoData.episodes[0];
             document.getElementById('episode-number').textContent = firstEpisode.number;
             document.getElementById('episode-title').textContent = firstEpisode.title || `第${firstEpisode.number}集`;
+            
+            // 缓存当前剧集数据
+            cachedEpisodes = videoData.episodes;
+            
+            // 渲染当前剧集列表（可能不完整）
+            renderEpisodesList(videoData.episodes);
         } else {
             document.getElementById('episode-number').textContent = '单集';
             document.getElementById('episode-title').textContent = '完整版';
         }
-
-        // 构建并设置iframe的src
-        const encodedM3u8Url = encodeURIComponent(videoData.m3u8_url || videoData.play_url);
-        const iframeSrc = `https://m3u8player.org/player.html?url=${encodedM3u8Url}`;
-        document.getElementById('video-player').src = iframeSrc;
-
-        // 向服务器发送日志
-        sendLogToServer('播放器初始化成功', {
+        
+        // 优先设置播放器
+        const playUrl = videoData.m3u8_url || videoData.play_url;
+        
+        if (playUrl) {
+            const encodedM3u8Url = encodeURIComponent(playUrl);
+            const iframeSrc = `https://m3u8player.org/player.html?url=${encodedM3u8Url}&autoplay=1`;
+            document.getElementById('video-player').src = iframeSrc;
+        } else if (videoData.episodes && videoData.episodes.length > 0) {
+            // 使用第一集播放地址
+            const firstEpisode = videoData.episodes[0];
+            if (firstEpisode.play_url) {
+                const encodedM3u8Url = encodeURIComponent(firstEpisode.play_url);
+                const iframeSrc = `https://m3u8player.org/player.html?url=${encodedM3u8Url}&autoplay=1`;
+                document.getElementById('video-player').src = iframeSrc;
+            }
+        }
+        
+        hideLoading();
+        
+        // 发送日志
+        sendLogToServer('播放器快速初始化成功', {
             videoTitle: videoData.video_title,
-            episodeCount: videoData.episodes ? videoData.episodes.length : 0
+            episodeCount: videoData.episodes ? videoData.episodes.length : 0,
+            hasPlayUrl: !!playUrl
         });
+        
     } catch (error) {
-        console.error('播放器初始化失败:', error);
+        console.error('播放器快速初始化失败:', error);
         showError(error.message);
-        sendLogToServer('播放器初始化失败', {
+        sendLogToServer('播放器快速初始化失败', {
             error: error.message, 
             stack: error.stack
         });
@@ -286,13 +321,77 @@ function initPlayer(videoData) {
 // ==================== 数据加载 ====================
 
 /**
- * 加载剧集视频
+ * 加载剧集播放地址
+ * @param {string} episodeUrl - 剧集页面URL
+ * @param {number} episodeIndex - 剧集索引
+ */
+function loadEpisodePlayUrl(episodeUrl, episodeIndex) {
+    // 创建一个临时的API来获取单个剧集的播放地址
+    const apiUrl = '/episode-play-url';
+    
+    fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            episode_url: episodeUrl
+        })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP错误 ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(response => {
+        if (!response.success) {
+            throw new Error(response.error || '获取剧集播放地址失败');
+        }
+        
+        const playUrl = response.play_url;
+        if (playUrl) {
+            // 更新缓存
+            if (cachedEpisodes && cachedEpisodes[episodeIndex]) {
+                cachedEpisodes[episodeIndex].play_url = playUrl;
+            }
+            
+            // 更新播放器
+            updatePlayer(playUrl);
+            
+            // 重新渲染播放列表以显示更新的状态
+            renderEpisodesList(cachedEpisodes);
+            
+            // 恢复激活状态
+            document.querySelectorAll('.episode-item').forEach((item, i) => {
+                item.classList.toggle('active', i === episodeIndex);
+            });
+        } else {
+            throw new Error('未获取到有效的播放地址');
+        }
+    })
+    .catch(error => {
+        console.error('加载剧集播放地址失败:', error);
+        showError(`加载剧集失败: ${error.message}`, true);
+    });
+}
+
+/**
+ * 加载完整播放列表
  * @param {string} videoId - 视频ID
  */
-function loadEpisodeVideo(videoId) {
+function loadFullEpisodeList(videoId) {
+    // 如果已经有缓存且数量足够，跳过加载
+    if (cachedEpisodes && cachedEpisodes.length > 5) {
+        console.log('播放列表已缓存，跳过重复加载');
+        return;
+    }
+    
+    console.log('开始加载完整播放列表...');
+    
     const params = new URLSearchParams({
         async: 'true',
-        max_episodes: '1'  // 只获取当前剧集
+        max_episodes: '50'  // 获取更多剧集
     });
     
     fetch(`/video/${videoId}?${params}`)
@@ -303,41 +402,58 @@ function loadEpisodeVideo(videoId) {
             return response.json();
         })
         .then(response => {
-            hideLoading();
             if (!response.success) {
-                throw new Error(response.error || '获取剧集数据失败');
+                throw new Error(response.error || '获取完整播放列表失败');
             }
             
             const data = response.data;
-            if (data && data.m3u8_url) {
-                updatePlayer(data.m3u8_url);
-            } else {
-                throw new Error('剧集视频数据无效');
+            
+            if (data && data.episodes && data.episodes.length > 0) {
+                // 更新缓存
+                cachedEpisodes = data.episodes;
+                currentVideoData.episodes = data.episodes;
+                
+                // 重新渲染完整播放列表
+                renderEpisodesList(data.episodes);
+                
+                console.log(`完整播放列表加载完成，共 ${data.episodes.length} 集`);
+                
+                sendLogToServer('完整播放列表加载成功', {
+                    episodeCount: data.episodes.length
+                });
             }
         })
         .catch(error => {
-            hideLoading();
-            console.error('加载剧集视频失败:', error);
-            showError(`加载剧集失败: ${error.message}`, true);
+            console.warn('加载完整播放列表失败:', error);
+            // 不影响当前播放，只记录日志
+            sendLogToServer('完整播放列表加载失败', {
+                error: error.message
+            });
         });
 }
 
 /**
- * 加载视频数据
+ * 加载视频数据 - 优化版本
  * @param {string} videoId - 视频ID
  */
 function loadVideoData(videoId) {
-    if (isLoading) return;
+    if (isLoading) {
+        return;
+    }
     
+    // 显示加载状态
     showLoading('正在加载视频信息...');
     
-    // 请求视频数据 - 使用新的API
+    // 优先获取视频播放地址和基本信息
     const params = new URLSearchParams({
         async: 'true',
-        max_episodes: '20'  // 只获取前20集的播放地址
+        max_episodes: '1'  // 先只获取第一集，快速显示播放器
     });
     
-    fetch(`/video/${videoId}?${params}`)
+    const startTime = performance.now();
+    const apiUrl = `/video/${videoId}?${params}`;
+    
+    fetch(apiUrl)
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP错误 ${response.status}`);
@@ -345,19 +461,24 @@ function loadVideoData(videoId) {
             return response.json();
         })
         .then(response => {
-            hideLoading();
+            const loadTime = performance.now() - startTime;
             
             if (!response.success) {
                 throw new Error(response.error || '获取视频数据失败');
             }
             
             const data = response.data;
-            // 检查API返回的数据结构
-            if (data && (data.m3u8_url || (data.episodes && data.episodes.length > 0))) {
+            
+            if (data && (data.m3u8_url || data.play_url || (data.episodes && data.episodes.length > 0))) {
                 retryCount = 0; // 重置重试计数
-                initPlayer(data);
+                
+                // 先初始化播放器（优先显示视频）
+                initPlayerQuick(data);
+                
+                // 然后异步加载完整播放列表
+                loadFullEpisodeList(videoId);
             } else {
-                throw new Error('API返回无效的视频数据');
+                throw new Error('API返回无效的视频数据：缺少播放地址和剧集信息');
             }
         })
         .catch(error => {
@@ -365,8 +486,8 @@ function loadVideoData(videoId) {
             console.error('请求失败:', error);
             showError(`加载视频失败: ${error.message}`, true);
             sendLogToServer('视频请求失败', {
-                error: error.message,
                 videoId: videoId,
+                error: error.message,
                 retryCount: retryCount
             });
         });
@@ -669,20 +790,35 @@ function showEpisodeInfo() {
  * 页面加载完成后初始化
  */
 window.addEventListener('DOMContentLoaded', () => {
-    // 初始化剧集列表为加载状态
-    showEpisodesLoading();
+    // 防止重复初始化
+    if (isInitialized) {
+        return;
+    }
+    
+    isInitialized = true;
+    
+    // 初始化页面元素状态
+    document.getElementById('video-title').textContent = '';
+    document.getElementById('episode-number').textContent = '';
+    document.getElementById('episode-title').textContent = '';
+    document.getElementById('episode-count').textContent = '';
+    document.getElementById('episodes-list').innerHTML = '';
     
     const videoId = getVideoIdFromUrl();
     
     if (videoId) {
-        loadVideoData(videoId);
+        // 只调用loadVideoData，不再手动调用showLoading
+        if (!isLoading) {
+            loadVideoData(videoId);
+        }
     } else {
         const errorMsg = '未找到视频ID参数';
         console.error(errorMsg);
         showError(errorMsg, false);
-        // 清除剧集加载状态
+        // 设置错误状态
         document.getElementById('episodes-list').innerHTML = '<div class="no-episodes">无法加载剧集</div>';
         document.getElementById('episode-count').textContent = '0 集';
+        document.getElementById('video-title').textContent = '视频加载失败';
         sendLogToServer('参数缺失', {
             urlParams: window.location.href
         });
