@@ -1,0 +1,30 @@
+services:
+  # 主应用服务
+  duanju:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: duanju_app
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - LOG_LEVEL=WARNING
+      - CACHE_TIMEOUT=7200
+      - CACHE_MAX_SIZE=5000
+      - MAX_EPISODES=50
+      - REQUEST_TIMEOUT=8
+      - ASYNC_TIMEOUT=15
+      - MAX_CONCURRENT_REQUESTS=30
+      - RATE_LIMIT_ENABLED=true
+      - RATE_LIMIT_PER_MINUTE=60
+      - RATE_LIMIT_PER_HOUR=1000
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
