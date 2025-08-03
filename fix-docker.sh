@@ -43,7 +43,7 @@ case $choice in
         echo "🚀 使用简单部署..."
         docker compose -f docker-compose.simple.yml build
         docker compose -f docker-compose.simple.yml up -d
-        echo "✅ 部署完成！访问 http://your-server-ip:5000"
+        echo "✅ 部署完成！访问 http://your-server-ip:3366"
         ;;
     2)
         echo "🚀 使用完整部署..."
@@ -66,7 +66,7 @@ docker compose ps
 echo ""
 echo "🔍 检查应用健康状态..."
 if [ "$choice" = "1" ]; then
-    curl -f http://localhost:5000/health && echo "✅ 应用运行正常" || echo "❌ 应用运行异常"
+    curl -f http://localhost:3366/health && echo "✅ 应用运行正常" || echo "❌ 应用运行异常"
 else
     curl -f http://localhost/health && echo "✅ 应用运行正常" || echo "❌ 应用运行异常"
 fi

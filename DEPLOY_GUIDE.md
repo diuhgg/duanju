@@ -18,7 +18,7 @@ docker-compose up -d
 docker-compose ps
 ```
 
-访问：http://your-server-ip
+访问：http://your-server-ip:3366
 
 ---
 

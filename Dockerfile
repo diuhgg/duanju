@@ -38,11 +38,11 @@ RUN useradd -m -u 1000 appuser \
 USER appuser
 
 # 暴露端口
-EXPOSE 5000
+EXPOSE 3366
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:5000/health || exit 1
+    CMD curl -f http://localhost:3366/health || exit 1
 
 # 设置环境变量
 ENV FLASK_ENV=production
@@ -50,4 +50,4 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
 # 启动命令
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "30", "--keep-alive", "2", "--max-requests", "1000", "--access-logfile", "logs/access.log", "--error-logfile", "logs/error.log", "--log-level", "warning", "wsgi:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:3366", "--workers", "4", "--timeout", "30", "--keep-alive", "2", "--max-requests", "1000", "--access-logfile", "logs/access.log", "--error-logfile", "logs/error.log", "--log-level", "warning", "wsgi:app"]

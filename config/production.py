@@ -38,7 +38,7 @@ class ProductionConfig:
     
     # 服务器配置
     HOST = os.getenv('HOST', '0.0.0.0')
-    PORT = int(os.getenv('PORT', '5000'))
+    PORT = int(os.getenv('PORT', '3366'))
     WORKERS = int(os.getenv('WORKERS', '4'))
 
 def get_config():
