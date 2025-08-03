@@ -52,14 +52,35 @@ check_environment() {
         exit 1
     fi
     
-    # 检查Docker Compose
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+    # 检查Docker Compose (支持v1和v2)
+    COMPOSE_CMD=""
+    if command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD="docker-compose"
+    elif docker compose version &> /dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+    else
         log_error "Docker Compose 未安装，请先安装Docker Compose"
         exit 1
     fi
     
+    log_info "使用Docker Compose命令: $COMPOSE_CMD"
+    
+    # 检查curl是否安装（用于健康检查）
+    if ! command -v curl &> /dev/null; then
+        log_warning "curl 未安装，将尝试安装..."
+        if command -v apt-get &> /dev/null; then
+            apt-get update && apt-get install -y curl
+        elif command -v yum &> /dev/null; then
+            yum install -y curl
+        elif command -v apk &> /dev/null; then
+            apk add curl
+        else
+            log_warning "无法自动安装curl，健康检查可能失败"
+        fi
+    fi
+    
     # 检查端口占用
-    if netstat -tlnp 2>/dev/null | grep -q ":3366 "; then
+    if ss -tlnp 2>/dev/null | grep -q ":3366 " || netstat -tlnp 2>/dev/null | grep -q ":3366 "; then
         log_warning "端口3366已被占用，将使用端口3367"
         export DEPLOY_PORT=3367
     else
@@ -121,18 +142,19 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.duanju.rule=Host(\`localhost\`)"
-      - "traefik.http.services.duanju.loadbalancer.server.port=3366"
+    # 注意: deploy 配置在单机模式下可能不生效，仅在Docker Swarm模式下有效
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2.0'
+    #       memory: 2G
+    #     reservations:
+    #       cpus: '0.5'
+    #       memory: 512M
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.duanju.rule=Host(\`localhost\`)"
+    #   - "traefik.http.services.duanju.loadbalancer.server.port=3366"
 
 networks:
   default:
@@ -148,18 +170,18 @@ deploy_service() {
     log_info "开始构建和部署服务..."
     
     # 停止已存在的容器
-    if docker ps -a | grep -q "duanju_app_1panel"; then
+    if docker ps -a --format "table {{.Names}}" | grep -q "duanju_app_1panel"; then
         log_info "停止已存在的容器..."
-        docker-compose -f docker-compose.1panel.yml down 2>/dev/null || true
+        $COMPOSE_CMD -f docker-compose.1panel.yml down 2>/dev/null || true
     fi
     
     # 构建镜像
     log_info "构建Docker镜像..."
-    docker-compose -f docker-compose.1panel.yml build --no-cache
+    $COMPOSE_CMD -f docker-compose.1panel.yml build --no-cache
     
     # 启动服务
     log_info "启动服务..."
-    docker-compose -f docker-compose.1panel.yml up -d
+    $COMPOSE_CMD -f docker-compose.1panel.yml up -d
     
     log_success "服务部署完成"
 }
@@ -195,10 +217,10 @@ show_deploy_info() {
     echo "  - 服务器访问: http://$(curl -s ifconfig.me 2>/dev/null || echo 'YOUR_SERVER_IP'):${DEPLOY_PORT}"
     echo
     log_info "管理命令："
-    echo "  - 查看状态: docker-compose -f docker-compose.1panel.yml ps"
-    echo "  - 查看日志: docker-compose -f docker-compose.1panel.yml logs -f"
-    echo "  - 停止服务: docker-compose -f docker-compose.1panel.yml down"
-    echo "  - 重启服务: docker-compose -f docker-compose.1panel.yml restart"
+    echo "  - 查看状态: $COMPOSE_CMD -f docker-compose.1panel.yml ps"
+    echo "  - 查看日志: $COMPOSE_CMD -f docker-compose.1panel.yml logs -f"
+    echo "  - 停止服务: $COMPOSE_CMD -f docker-compose.1panel.yml down"
+    echo "  - 重启服务: $COMPOSE_CMD -f docker-compose.1panel.yml restart"
     echo
     log_info "健康检查："
     echo "  - 健康状态: curl http://localhost:${DEPLOY_PORT}/health"
@@ -206,7 +228,7 @@ show_deploy_info() {
     echo
     log_info "日志文件："
     echo "  - 应用日志: ./logs/"
-    echo "  - 容器日志: docker-compose -f docker-compose.1panel.yml logs"
+    echo "  - 容器日志: $COMPOSE_CMD -f docker-compose.1panel.yml logs"
     echo
     log_warning "请确保在1Panel防火墙中开放端口 ${DEPLOY_PORT}"
     echo
@@ -291,8 +313,8 @@ main() {
         log_error "部署失败，请检查错误信息"
         echo
         log_info "故障排除："
-        echo "1. 查看容器日志: docker-compose -f docker-compose.1panel.yml logs"
-        echo "2. 检查端口占用: netstat -tlnp | grep ${DEPLOY_PORT}"
+        echo "1. 查看容器日志: $COMPOSE_CMD -f docker-compose.1panel.yml logs"
+        echo "2. 检查端口占用: ss -tlnp | grep ${DEPLOY_PORT} 或 netstat -tlnp | grep ${DEPLOY_PORT}"
         echo "3. 检查防火墙设置"
         echo "4. 检查Docker服务状态: systemctl status docker"
         exit 1
