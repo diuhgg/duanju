@@ -1,0 +1,65 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极简视频搜索</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>极简短剧搜索</h1>
+            <p class="subtitle">搜索发现精彩短剧内容</p>
+        </header>
+        
+        <div class="search-container">
+            <input 
+                type="text" 
+                id="search-input" 
+                placeholder="输入视频关键词..." 
+                autocomplete="off"
+                autofocus
+            >
+            <button id="search-button">
+                <i class="fas fa-search"></i> 搜索
+            </button>
+        </div>
+        
+        <div class="loader" id="loader">
+            <div class="loader-spinner"></div>
+            <p>正在搜索中，请稍候...</p>
+        </div>
+        
+        <div class="error-message" id="error-message"></div>
+        
+        <div class="results-container" id="results-container">
+            <div class="result-header">
+                <h2 class="result-title" id="result-title">搜索结果</h2>
+                <div class="result-count" id="result-count">0 个结果</div>
+            </div>
+            
+            <div id="results-list"></div>
+        </div>
+    </div>
+    
+    <footer>
+        <p>极简短剧搜索 | 简洁至上，体验为先</p>
+        <p>本网站所有内容均来自网络，本身不存储任何内容 。</p>
+        <p>本网站保留随时修改、更新本免责声明的权利，恕不另行通知。</a>
+        
+    </footer>
+
+    <!-- 工具模块 -->
+    <script src="/static/js/utils/dom.js"></script>
+    <script src="/static/js/utils/api.js"></script>
+    
+    <!-- 组件模块 -->
+    <script src="/static/js/components/search.js"></script>
+    
+    <!-- 页面模块 -->
+    <script src="/static/js/pages/index.js"></script>
+</body>
+</html>
