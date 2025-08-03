@@ -20,7 +20,7 @@ services:
       - RATE_LIMIT_PER_MINUTE=60
       - RATE_LIMIT_PER_HOUR=1000
     volumes:
-      - ./logs:/app/logs
+      - ./logs:/app/logs:rw
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3366/health"]

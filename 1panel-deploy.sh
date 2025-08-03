@@ -100,8 +100,9 @@ create_deploy_dir() {
         exit 1
     fi
     
-    # 创建日志目录
+    # 创建日志目录并设置权限
     mkdir -p logs
+    chmod 777 logs
     
     log_success "部署目录创建完成"
 }
@@ -133,7 +134,7 @@ services:
       - RATE_LIMIT_PER_MINUTE=60
       - RATE_LIMIT_PER_HOUR=1000
     volumes:
-      - ./logs:/app/logs
+      - ./logs:/app/logs:rw
       - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped
     healthcheck:

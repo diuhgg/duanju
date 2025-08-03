@@ -34,7 +34,9 @@ RUN mkdir -p logs \
 
 # 创建非root用户
 RUN useradd -m -u 1000 appuser \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app \
+    && chmod -R 755 /app \
+    && chmod -R 777 /app/logs
 USER appuser
 
 # 暴露端口
