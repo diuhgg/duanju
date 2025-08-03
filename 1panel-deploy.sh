@@ -29,22 +29,9 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# 检查是否为root用户
-check_root() {
-    if [[ $EUID -eq 0 ]]; then
-        log_warning "检测到root用户，建议使用普通用户部署"
-    fi
-}
-
 # 检查系统环境
 check_environment() {
     log_info "检查系统环境..."
-    
-    # 检查操作系统
-    if [[ ! -f /etc/os-release ]]; then
-        log_error "不支持的操作系统"
-        exit 1
-    fi
     
     # 检查Docker
     if ! command -v docker &> /dev/null; then
@@ -143,19 +130,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    # 注意: deploy 配置在单机模式下可能不生效，仅在Docker Swarm模式下有效
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: '2.0'
-    #       memory: 2G
-    #     reservations:
-    #       cpus: '0.5'
-    #       memory: 512M
-    # labels:
-    #   - "traefik.enable=true"
-    #   - "traefik.http.routers.duanju.rule=Host(\`localhost\`)"
-    #   - "traefik.http.services.duanju.loadbalancer.server.port=3366"
 
 networks:
   default:
@@ -227,61 +201,8 @@ show_deploy_info() {
     echo "  - 健康状态: curl http://localhost:${DEPLOY_PORT}/health"
     echo "  - 缓存统计: curl http://localhost:${DEPLOY_PORT}/cache/stats"
     echo
-    log_info "日志文件："
-    echo "  - 应用日志: ./logs/"
-    echo "  - 容器日志: $COMPOSE_CMD -f docker-compose.1panel.yml logs"
-    echo
     log_warning "请确保在1Panel防火墙中开放端口 ${DEPLOY_PORT}"
     echo
-}
-
-# 创建1Panel导入文件
-create_1panel_import() {
-    log_info "创建1Panel导入配置..."
-    
-    cat > 1panel-import.json << EOF
-{
-  "name": "短剧搜索播放系统",
-  "description": "基于Flask的短剧搜索和播放系统",
-  "version": "1.0.0",
-  "compose_file": "docker-compose.1panel.yml",
-  "env_file": ".env.1panel",
-  "port": ${DEPLOY_PORT},
-  "health_check": "/health",
-  "tags": ["entertainment", "video", "flask"],
-  "requirements": {
-    "memory": "512MB",
-    "cpu": "0.5",
-    "disk": "2GB"
-  },
-  "features": [
-    "短剧搜索",
-    "在线播放",
-    "移动端适配",
-    "缓存优化",
-    "健康监控"
-  ]
-}
-EOF
-    
-    # 创建环境变量文件
-    cat > .env.1panel << EOF
-# 1Panel 环境变量配置
-DEPLOY_PORT=${DEPLOY_PORT}
-FLASK_ENV=production
-LOG_LEVEL=WARNING
-CACHE_TIMEOUT=7200
-CACHE_MAX_SIZE=5000
-MAX_EPISODES=50
-REQUEST_TIMEOUT=8
-ASYNC_TIMEOUT=15
-MAX_CONCURRENT_REQUESTS=30
-RATE_LIMIT_ENABLED=true
-RATE_LIMIT_PER_MINUTE=60
-RATE_LIMIT_PER_HOUR=1000
-EOF
-    
-    log_success "1Panel导入配置创建完成"
 }
 
 # 主函数
@@ -292,11 +213,9 @@ main() {
     echo "=================================="
     echo -e "${NC}"
     
-    check_root
     check_environment
     create_deploy_dir
     generate_1panel_compose
-    create_1panel_import
     deploy_service
     
     if wait_for_service; then
@@ -321,15 +240,6 @@ main() {
         exit 1
     fi
 }
-
-# 清理函数
-cleanup() {
-    log_info "执行清理操作..."
-    # 这里可以添加清理逻辑
-}
-
-# 信号处理
-trap cleanup EXIT
 
 # 执行主函数
 main "$@"

@@ -111,48 +111,16 @@ else
     log_info "然后重新登录或运行: newgrp docker"
 fi
 
-# 9. 创建修复后的docker-compose文件
-log_info "创建权限修复版docker-compose文件..."
-cat > docker-compose.fixed.yml << 'EOF'
-services:
-  duanju:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    container_name: duanju_app_fixed
-    ports:
-      - "3366:3366"
-    environment:
-      - FLASK_ENV=production
-      - LOG_LEVEL=WARNING
-      - CACHE_TIMEOUT=7200
-      - CACHE_MAX_SIZE=5000
-      - MAX_EPISODES=50
-      - REQUEST_TIMEOUT=8
-      - ASYNC_TIMEOUT=15
-      - MAX_CONCURRENT_REQUESTS=30
-      - RATE_LIMIT_ENABLED=true
-      - RATE_LIMIT_PER_MINUTE=60
-      - RATE_LIMIT_PER_HOUR=1000
-    volumes:
-      - ./logs:/app/logs:rw
-      - /etc/localtime:/etc/localtime:ro
-    restart: unless-stopped
-    user: "0:0"  # 临时使用root用户解决权限问题
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3366/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
-networks:
-  default:
-    name: duanju_network_fixed
-    driver: bridge
-EOF
-
-log_success "权限修复版配置文件创建完成"
+# 9. 检查SELinux设置（如果需要）
+if command -v getenforce &> /dev/null; then
+    if [ "$(getenforce)" = "Enforcing" ]; then
+        log_warning "检测到SELinux处于强制模式"
+        log_info "SELinux修复命令:"
+        echo "  sudo setsebool -P container_manage_cgroup on"
+        echo "  sudo chcon -Rt svirt_sandbox_file_t ./logs"
+        echo "  或临时禁用: sudo setenforce 0"
+    fi
+fi
 
 # 10. 显示修复结果
 echo ""
@@ -164,29 +132,12 @@ echo "  ✅ 项目文件权限规范化"
 echo "  ✅ 目录权限设置为755" 
 echo "  ✅ 清理了现有容器"
 echo "  ✅ 清理了Docker缓存"
-echo "  ✅ 创建了权限修复版配置"
 echo ""
-log_info "测试部署："
-echo "  docker-compose -f docker-compose.fixed.yml up -d"
+log_info "现在可以重新部署："
+echo "  ./1panel-deploy.sh"
+echo "  或: docker-compose -f docker-compose.simple.yml up -d"
 echo ""
-log_info "如果仍有权限问题，可以尝试："
-echo "  1. 使用sudo运行部署脚本"
-echo "  2. 检查SELinux设置: getenforce"
-echo "  3. 临时禁用SELinux: sudo setenforce 0"
-echo "  4. 检查AppArmor设置"
-echo ""
-log_warning "注意: 权限修复版使用root用户运行容器，仅用于测试"
-
-# 11. 创建SELinux修复命令（如果需要）
-if command -v getenforce &> /dev/null; then
-    if [ "$(getenforce)" = "Enforcing" ]; then
-        log_warning "检测到SELinux处于强制模式"
-        log_info "SELinux修复命令:"
-        echo "  sudo setsebool -P container_manage_cgroup on"
-        echo "  sudo chcon -Rt svirt_sandbox_file_t ./logs"
-        echo "  或临时禁用: sudo setenforce 0"
-    fi
-fi
+log_warning "如果仍有权限问题，请检查SELinux和AppArmor设置"
 
 echo ""
 log_success "权限修复脚本执行完成！"
