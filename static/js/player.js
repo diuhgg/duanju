@@ -10,7 +10,185 @@ let isLoading = false;
 let isInitialized = false;
 let retryCount = 0;
 let cachedEpisodes = null; // 缓存播放列表
+let player = null; // Video.js播放器实例
 const MAX_RETRY_COUNT = 3;
+
+// ==================== Video.js播放器管理 ====================
+
+/**
+ * 初始化Video.js播放器
+ */
+function initVideoPlayer() {
+    if (player) {
+        player.dispose();
+        player = null;
+    }
+    
+    try {
+        player = videojs('video-player', {
+            controls: true,
+            fluid: true,
+            responsive: true,
+            aspectRatio: window.innerWidth <= 768 ? '9:16' : '16:9', // 响应式长宽比
+            fill: false,
+            playbackRates: [0.5, 1, 1.25, 1.5, 2],
+            html5: {
+                hls: {
+                    enableLowInitialPlaylist: true,
+                    smoothQualityChange: true,
+                    overrideNative: true
+                }
+            },
+            techOrder: ['html5'],
+            sources: [],
+            breakpoints: {
+                tiny: 300,
+                xsmall: 400,
+                small: 500,
+                medium: 600,
+                large: 700,
+                xlarge: 800,
+                huge: 900
+            }
+        });
+
+        // 播放器事件监听
+        player.ready(() => {
+            console.log('Video.js播放器已准备就绪');
+            // 根据设备类型设置合适的aspect ratio
+            const isMobile = window.innerWidth <= 768;
+            if (isMobile) {
+                player.aspectRatio('9:16');
+            } else {
+                player.aspectRatio('16:9');
+            }
+            adjustPlayerSize(); // 调整播放器尺寸
+        });
+
+        player.on('error', (error) => {
+            console.error('播放器错误:', error);
+            showError('视频播放出错，请稍后重试');
+        });
+
+        player.on('loadstart', () => {
+            console.log('开始加载视频');
+        });
+
+        player.on('canplay', () => {
+            console.log('视频可以播放');
+            hideLoading();
+        });
+
+        player.on('ended', () => {
+            console.log('视频播放结束');
+            // 自动播放下一集
+            autoPlayNextEpisode();
+        });
+
+        player.on('resize', () => {
+            adjustPlayerSize();
+        });
+
+        // 窗口大小改变时调整播放器
+        window.addEventListener('resize', () => {
+            adjustPlayerSize();
+        });
+
+        return player;
+    } catch (error) {
+        console.error('初始化播放器失败:', error);
+        showError('播放器初始化失败');
+        return null;
+    }
+}
+
+/**
+ * 更新播放器源
+ * @param {string} videoUrl - 视频URL
+ * @param {string} videoType - 视频类型
+ */
+function updatePlayerSource(videoUrl, videoType = 'application/x-mpegURL') {
+    if (!player) {
+        player = initVideoPlayer();
+    }
+    
+    if (player && videoUrl) {
+        try {
+            showLoading('正在加载视频...', true);
+            
+            player.src({
+                src: videoUrl,
+                type: videoType
+            });
+            
+            // 尝试自动播放
+            player.ready(() => {
+                player.play().catch(e => {
+                    console.log('自动播放失败，需要用户交互:', e);
+                });
+            });
+            
+        } catch (error) {
+            console.error('更新播放器源失败:', error);
+            showError('视频加载失败');
+        }
+    }
+}
+
+/**
+ * 动态调整播放器尺寸
+ */
+function adjustPlayerSize() {
+    if (!player) return;
+    
+    const container = document.querySelector('.player-container');
+    if (!container) return;
+    
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+    const isLandscape = screenWidth > screenHeight;
+    const isMobile = screenWidth <= 768;
+    
+    try {
+        if (isMobile) {
+            // 移动端自适应（竖屏视频）
+            const episodesList = document.querySelector('.episodes-section');
+            const isEpisodesCollapsed = episodesList && episodesList.classList.contains('collapsed');
+            
+            if (isLandscape) {
+                // 横屏：充满可用空间
+                const availableHeight = isEpisodesCollapsed ? screenHeight - 80 : screenHeight - 120;
+                const maxHeight = Math.min(availableHeight, screenHeight * 0.9);
+                const maxWidth = Math.min(screenWidth * 0.9, maxHeight * 9/16);
+                container.style.maxHeight = `${maxHeight}px`;
+                container.style.maxWidth = `${maxWidth}px`;
+                container.style.aspectRatio = '9/16';
+            } else {
+                // 竖屏：充满播放列表之外的空间
+                const availableHeight = isEpisodesCollapsed ? screenHeight - 80 : screenHeight - 120;
+                const maxHeight = Math.min(availableHeight, screenHeight * 0.85);
+                const maxWidth = Math.min(screenWidth * 0.95, maxHeight * 9/16);
+                container.style.maxHeight = `${maxHeight}px`;
+                container.style.maxWidth = `${maxWidth}px`;
+                container.style.aspectRatio = '9/16';
+            }
+        } else {
+            // 桌面端自适应（16:9比例）
+            const maxHeight = Math.min(screenHeight * 0.8, 700);
+            container.style.maxHeight = `${maxHeight}px`;
+            container.style.aspectRatio = '16/9';
+            container.style.maxWidth = 'none'; // 桌面端不限制最大宽度
+        }
+        
+        // 触发播放器重新计算尺寸
+        if (player.el()) {
+            player.trigger('resize');
+        }
+        
+    } catch (error) {
+        console.warn('调整播放器尺寸时出错:', error);
+    }
+}
 
 // ==================== 工具函数 ====================
 
@@ -232,7 +410,123 @@ function switchToNextEpisode() {
     if (currentVideoData && currentVideoData.episodes && 
         currentEpisodeIndex < currentVideoData.episodes.length - 1) {
         switchEpisode(currentEpisodeIndex + 1);
+    } else {
+        console.log('已经是最后一集了');
+        showToast('已播放完所有剧集');
     }
+}
+
+/**
+ * 自动播放下一集（带提示和延迟）
+ */
+function autoPlayNextEpisode() {
+    if (!currentVideoData || !currentVideoData.episodes) {
+        console.log('没有剧集数据');
+        return;
+    }
+    
+    if (currentEpisodeIndex >= currentVideoData.episodes.length - 1) {
+        console.log('已经是最后一集了');
+        showToast('🎉 所有剧集播放完毕！');
+        return;
+    }
+    
+    // 显示自动播放倒计时
+    showAutoPlayCountdown(() => {
+        switchEpisode(currentEpisodeIndex + 1);
+    });
+}
+
+/**
+ * 显示自动播放倒计时
+ * @param {Function} callback - 倒计时结束后的回调
+ */
+function showAutoPlayCountdown(callback) {
+    const nextEpisodeIndex = currentEpisodeIndex + 1;
+    const nextEpisode = currentVideoData.episodes[nextEpisodeIndex];
+    
+    if (!nextEpisode) return;
+    
+    let countdown = 5; // 5秒倒计时
+    const countdownElement = document.createElement('div');
+    countdownElement.className = 'auto-play-countdown';
+    countdownElement.innerHTML = `
+        <div class="countdown-content">
+            <div class="countdown-text">即将播放下一集</div>
+            <div class="next-episode-info">
+                第${nextEpisode.number}集: ${nextEpisode.title || `第${nextEpisode.number}集`}
+            </div>
+            <div class="countdown-timer">${countdown}</div>
+            <div class="countdown-actions">
+                <button class="countdown-btn cancel-btn" onclick="cancelAutoPlay()">取消</button>
+                <button class="countdown-btn play-now-btn" onclick="playNowAutoPlay()">立即播放</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(countdownElement);
+    
+    // 保存回调和倒计时元素到全局变量
+    window.autoPlayCallback = callback;
+    window.autoPlayCountdownElement = countdownElement;
+    
+    // 开始倒计时
+    const timer = setInterval(() => {
+        countdown--;
+        const timerElement = countdownElement.querySelector('.countdown-timer');
+        if (timerElement) {
+            timerElement.textContent = countdown;
+        }
+        
+        if (countdown <= 0) {
+            clearInterval(timer);
+            if (countdownElement.parentNode) {
+                countdownElement.parentNode.removeChild(countdownElement);
+            }
+            if (callback) callback();
+            // 清理全局变量
+            window.autoPlayCallback = null;
+            window.autoPlayCountdownElement = null;
+        }
+    }, 1000);
+    
+    // 保存计时器ID
+    window.autoPlayTimer = timer;
+}
+
+/**
+ * 取消自动播放
+ */
+function cancelAutoPlay() {
+    if (window.autoPlayTimer) {
+        clearInterval(window.autoPlayTimer);
+        window.autoPlayTimer = null;
+    }
+    if (window.autoPlayCountdownElement && window.autoPlayCountdownElement.parentNode) {
+        window.autoPlayCountdownElement.parentNode.removeChild(window.autoPlayCountdownElement);
+    }
+    window.autoPlayCallback = null;
+    window.autoPlayCountdownElement = null;
+    showToast('已取消自动播放');
+}
+
+/**
+ * 立即播放下一集
+ */
+function playNowAutoPlay() {
+    if (window.autoPlayTimer) {
+        clearInterval(window.autoPlayTimer);
+        window.autoPlayTimer = null;
+    }
+    if (window.autoPlayCountdownElement && window.autoPlayCountdownElement.parentNode) {
+        window.autoPlayCountdownElement.parentNode.removeChild(window.autoPlayCountdownElement);
+    }
+    
+    const callback = window.autoPlayCallback;
+    window.autoPlayCallback = null;
+    window.autoPlayCountdownElement = null;
+    
+    if (callback) callback();
 }
 
 // ==================== 播放器管理 ====================
@@ -242,9 +536,11 @@ function switchToNextEpisode() {
  * @param {string} m3u8Url - M3U8播放地址
  */
 function updatePlayer(m3u8Url) {
-    const encodedM3u8Url = encodeURIComponent(m3u8Url);
-    const iframeSrc = `https://m3u8player.org/player.html?url=${encodedM3u8Url}`;
-    document.getElementById('video-player').src = iframeSrc;
+    if (m3u8Url) {
+        updatePlayerSource(m3u8Url);
+    } else {
+        showError('无效的播放地址');
+    }
 }
 
 
@@ -282,20 +578,26 @@ function initPlayerQuick(videoData) {
             document.getElementById('episode-title').textContent = '完整版';
         }
         
+        // 初始化Video.js播放器
+        if (!player) {
+            player = initVideoPlayer();
+        }
+        
+        // 调整播放器尺寸
+        setTimeout(() => {
+            adjustPlayerSize();
+        }, 100);
+        
         // 优先设置播放器
         const playUrl = videoData.m3u8_url || videoData.play_url;
         
         if (playUrl) {
-            const encodedM3u8Url = encodeURIComponent(playUrl);
-            const iframeSrc = `https://m3u8player.org/player.html?url=${encodedM3u8Url}&autoplay=1`;
-            document.getElementById('video-player').src = iframeSrc;
+            updatePlayerSource(playUrl);
         } else if (videoData.episodes && videoData.episodes.length > 0) {
             // 使用第一集播放地址
             const firstEpisode = videoData.episodes[0];
             if (firstEpisode.play_url) {
-                const encodedM3u8Url = encodeURIComponent(firstEpisode.play_url);
-                const iframeSrc = `https://m3u8player.org/player.html?url=${encodedM3u8Url}&autoplay=1`;
-                document.getElementById('video-player').src = iframeSrc;
+                updatePlayerSource(firstEpisode.play_url);
             }
         }
         
@@ -441,8 +743,8 @@ function loadVideoData(videoId) {
         return;
     }
     
-    // 显示加载状态
-    showLoading('正在加载视频信息...');
+    // 注释：已移除顶部加载动画
+    // showLoading('正在加载视频信息...');
     
     // 优先获取视频播放地址和基本信息
     const params = new URLSearchParams({
@@ -529,7 +831,14 @@ function setupKeyboardShortcuts() {
                 break;
             case ' ':
                 e.preventDefault();
-                // 尝试控制播放器暂停/播放（如果可能）
+                // 控制video.js播放器暂停/播放
+                if (player) {
+                    if (player.paused()) {
+                        player.play();
+                    } else {
+                        player.pause();
+                    }
+                }
                 break;
             case 'r':
             case 'R':
@@ -565,6 +874,9 @@ function showKeyboardHelp() {
                 </div>
                 <div class="help-item">
                     <kbd>→</kbd> <span>下一集</span>
+                </div>
+                <div class="help-item">
+                    <kbd>空格</kbd> <span>播放/暂停</span>
                 </div>
                 <div class="help-item">
                     <kbd>R</kbd> <span>重试加载</span>
@@ -829,4 +1141,68 @@ window.addEventListener('DOMContentLoaded', () => {
     
     // 移动端剧集列表显示/隐藏功能
     setupMobileEpisodeList();
+});
+
+// 页面卸载时清理播放器
+window.addEventListener('beforeunload', () => {
+    if (player) {
+        player.dispose();
+        player = null;
+    }
+});
+
+// 页面隐藏时暂停播放
+document.addEventListener('visibilitychange', () => {
+    if (player && document.hidden) {
+        player.pause();
+    }
+});
+
+/**
+ * 初始化移动端播放列表折叠功能
+ */
+function initEpisodesCollapse() {
+    const episodesHeader = document.querySelector('.episodes-header');
+    const episodesSection = document.querySelector('.episodes-section');
+    const mainContent = document.querySelector('.main-content');
+    
+    if (!episodesHeader || !episodesSection || !mainContent) return;
+    
+    // 检查是否为移动端
+    const isMobile = window.innerWidth <= 768;
+    if (!isMobile) return;
+    
+    // 默认不折叠
+    let isCollapsed = false;
+    
+    // 点击头部切换折叠状态
+    episodesHeader.addEventListener('click', () => {
+        isCollapsed = !isCollapsed;
+        
+        if (isCollapsed) {
+            episodesSection.classList.add('collapsed');
+            mainContent.classList.add('episodes-collapsed');
+        } else {
+            episodesSection.classList.remove('collapsed');
+            mainContent.classList.remove('episodes-collapsed');
+        }
+        
+        // 折叠状态改变后重新调整播放器尺寸
+        setTimeout(() => {
+            adjustPlayerSize();
+        }, 300); // 等待CSS动画完成
+    });
+}
+
+// 初始化折叠功能
+document.addEventListener('DOMContentLoaded', () => {
+    initEpisodesCollapse();
+});
+
+// 窗口大小改变时重新初始化
+window.addEventListener('resize', () => {
+    // 延迟执行，避免频繁调用
+    setTimeout(() => {
+        initEpisodesCollapse();
+    }, 200);
 });
