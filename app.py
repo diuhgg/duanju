@@ -441,9 +441,9 @@ if __name__ == '__main__':
     print("   - 频率限制")
     print("   - 错误处理优化")
     print("   - 配置管理系统")
-    print("\n🌐 访问地址: http://localhost:5000")
-    print("🔧 缓存管理: http://localhost:5000/cache/stats")
-    print("❤️ 健康检查: http://localhost:5000/health")
+    print("\n🌐 访问地址: http://localhost:3366")
+    print("🔧 缓存管理: http://localhost:3366/cache/stats")
+    print("❤️ 健康检查: http://localhost:3366/health")
     print(f"\n⚙️ 当前配置: {config.__class__.__name__}")
     print(f"🐛 调试模式: {'开启' if config.DEBUG else '关闭'}")
     print(f"⏱️ 频率限制: {'开启' if config.RATE_LIMIT_ENABLED else '关闭'}")
@@ -452,6 +452,6 @@ if __name__ == '__main__':
     app.run(
         debug=config.DEBUG, 
         host='0.0.0.0', 
-        port=5000,
+        port=3366,
         threaded=True  # 启用多线程支持
     )
